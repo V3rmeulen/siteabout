@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: siteabout
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: siteabout-reports-pvc
+  namespace: siteabout
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: siteabout-scan
+  namespace: siteabout
+spec:
+  template:
+    spec:
+      containers:
+      - name: sitespeed
+        image: sitespeedio/sitespeed.io:latest
+        args:
+          - "https://www.hln.be"
+          - "--n"            
+          - "1"
+          - "--outputFolder" 
+          - "/reports"
+        volumeMounts:
+        - name: report-storage
+          mountPath: /reports
+        - name: dshm
+          mountPath: /dev/shm
+      restartPolicy: Never
+      volumes:
+      - name: report-storage
+        persistentVolumeClaim:
+          claimName: siteabout-reports-pvc
+      - name: dshm
+        emptyDir:
+          medium: Memory
+  backoffLimit: 1

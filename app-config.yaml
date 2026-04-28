@@ -1,0 +1,232 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: siteabout-app-code
+  namespace: siteabout
+data:
+  app.py: |
+    import os, time, re
+    from flask import Flask, request, render_template_string, send_from_directory
+    from kubernetes import client, config
+
+    config.load_incluster_config()
+    batch_v1 = client.BatchV1Api()
+    app = Flask(__name__)
+
+    # We gebruiken jouw CSS variabelen en stijlen
+    CSS_CONTENT = """
+    :root {
+      --color-bg: #396fec;
+      --color-bg-light: #1e293b;
+      --color-primary: #2dd4bf;
+      --color-text: #f1f5f9;
+      --color-text-muted: #cbcfd6;
+      --color-border: #334155;
+      --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--color-bg);
+      color: var(--color-text);
+      line-height: 1.6;
+      margin: 0;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+    .navbar {
+      background-color: rgba(30, 41, 59, 0.95);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--color-border);
+      padding: 1rem 0;
+      margin-bottom: 2rem;
+    }
+    .nav-container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .logo {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--color-primary);
+      text-decoration: none;
+    }
+    .card {
+      background-color: var(--color-bg-light);
+      border: 1px solid var(--color-border);
+      border-radius: 1rem;
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+    .input-group {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    input[type="text"] {
+      flex: 1;
+      background-color: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: 0.5rem;
+      padding: 0.875rem 1rem;
+      color: var(--color-text);
+      font-size: 1rem;
+    }
+    input:focus {
+      outline: none;
+      border-color: var(--color-primary);
+    }
+    .btn {
+      display: inline-block;
+      padding: 0.875rem 1.75rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: none;
+      font-size: 1rem;
+    }
+    .btn-primary {
+      background-color: var(--color-primary);
+      color: var(--color-bg-light);
+    }
+    .btn-primary:hover {
+      background-color: #14b8a6;
+      transform: translateY(-2px);
+    }
+    .report-grid {
+      display: grid;
+      gap: 1rem;
+    }
+    .report-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: 0.75rem;
+      padding: 1rem 1.5rem;
+      text-decoration: none;
+      color: var(--color-text);
+      transition: border-color 0.2s;
+    }
+    .report-item:hover {
+      border-color: var(--color-primary);
+    }
+    .report-name { font-weight: 600; }
+    .report-date { color: var(--color-text-muted); font-size: 0.875rem; }
+    """
+
+    HTML_TEMPLATE = """
+    <!DOCTYPE html>
+    <html lang="nl">
+    <head>
+        <meta charset="UTF-8">
+        <title>SiteAbout | Netwerk Analyse</title>
+        <style>{{ css_content }}</style>
+    </head>
+    <body>
+        <nav class="navbar">
+            <div class="nav-container">
+                <a href="/" class="logo">SITEABOUT</a>
+                <div style="color: var(--color-text-muted); font-size: 0.875rem;">Kubernetes Web Analyzer</div>
+            </div>
+        </nav>
+
+        <div class="container">
+            <div class="card">
+                <h2 style="margin-bottom: 0.5rem;">Nieuwe Analyse</h2>
+                <p style="color: var(--color-text-muted);">Voer een URL in om de onderliggende domeinen en trackers te scannen.</p>
+                <form action="/run" method="post" class="input-group">
+                    <input type="text" name="url" placeholder="https://www.hln.be" required>
+                    <button type="submit" class="btn btn-primary">START SCAN</button>
+                </form>
+            </div>
+
+            <h3 style="margin-bottom: 1.5rem; color: var(--color-primary);">Gereedstaande Rapporten</h3>
+            <div class="report-grid">
+                {% for f in folders %}
+                <a href="/reports/{{f}}/index.html" class="report-item" target="_blank">
+                    <span class="report-name">{{ f.split('-')[0] }}</span>
+                    <span class="report-date">{{ f.split('-')[-1] }}</span>
+                </a>
+                {% else %}
+                <div class="card" style="text-align: center; padding: 3rem;">
+                    <p>Geen rapporten gevonden. Start een nieuwe scan om data te verzamelen.</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    @app.route('/')
+    def index():
+        root = '/reports'
+        folders = []
+        ignore = ['css', 'js', 'img', 'pages', 'lost+found', 'assets']
+        if os.path.exists(root):
+            folders = [f for f in os.listdir(root) if os.path.isdir(os.path.join(root, f)) and f not in ignore]
+            folders.sort(reverse=True)
+        return render_template_string(HTML_TEMPLATE, css_content=CSS_CONTENT, folders=folders)
+
+    @app.route('/run', methods=['POST'])
+    def run_job():
+        target = request.form.get('url')
+        clean_name = re.sub(r'[^a-z0-9]', '-', target.lower().replace('https://','').replace('http://',''))[:30].strip('-')
+        folder_name = f"{clean_name}-{int(time.time())}"
+        job_name = f"scan-{folder_name}"
+        
+        container = client.V1Container(
+            name="sitespeed",
+            image="sitespeedio/sitespeed.io:latest",
+            args=[target, "--n", "1", "--outputFolder", f"/reports/{folder_name}"],
+            volume_mounts=[
+                client.V1VolumeMount(name="data", mount_path="/reports"),
+                client.V1VolumeMount(name="shm", mount_path="/dev/shm")
+            ]
+        )
+        
+        job = client.V1Job(
+            api_version="batch/v1",
+            kind="Job",
+            metadata=client.V1ObjectMeta(name=job_name),
+            spec=client.V1JobSpec(
+                template=client.V1PodTemplateSpec(
+                    spec=client.V1PodSpec(
+                        restart_policy="Never",
+                        containers=[container],
+                        volumes=[
+                            client.V1Volume(name="data", persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name="siteabout-reports-pvc")),
+                            client.V1Volume(name="shm", empty_dir=client.V1EmptyDirVolumeSource(medium="Memory"))
+                        ]
+                    )
+                ),
+                ttl_seconds_after_finished=3600
+            )
+        )
+        batch_v1.create_namespaced_job(namespace="siteabout", body=job)
+        return render_template_string("""
+            <body style="background-color: #1e293b; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif;">
+                <div style="text-align: center;">
+                    <h2 style="color: #2dd4bf;">Scan Gestart</h2>
+                    <p>Analyse voor {{ target }} wordt voorbereid...</p>
+                    <script>setTimeout(function(){ window.location.href='/' }, 3000);</script>
+                </div>
+            </body>
+        """, target=target)
+
+    @app.route('/reports/<path:filename>')
+    def serve_reports(filename):
+        return send_from_directory('/reports', filename)
+
+    if __name__ == '__main__':
+        app.run(host='0.0.0.0', port=8080)

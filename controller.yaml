@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: siteabout-controller
+  namespace: siteabout
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: controller
+  template:
+    metadata:
+      labels:
+        app: controller
+    spec:
+      serviceAccountName: siteabout-manager-sa
+      containers:
+      - name: app
+        image: python:3.9-slim
+        command: ["/bin/sh", "-c"]
+        args:
+          - pip install flask kubernetes && python /src/app.py
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: src
+          mountPath: /src
+        - name: reports
+          mountPath: /reports
+      volumes:
+      - name: src
+        configMap:
+          name: siteabout-app-code
+      - name: reports
+        persistentVolumeClaim:
+          claimName: siteabout-reports-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: siteabout-controller-service
+  namespace: siteabout
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+  selector:
+    app: controller
